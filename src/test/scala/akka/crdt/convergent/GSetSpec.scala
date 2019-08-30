@@ -146,5 +146,6 @@ class GSetSpec extends WordSpec with MustMatchers {
       c1.id must be("users")
       c1.value.size must be(4)
     }
+
   }
 }

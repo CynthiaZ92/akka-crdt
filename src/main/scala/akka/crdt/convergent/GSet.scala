@@ -21,6 +21,8 @@ case class GSet(
 
   def +(element: JsValue): GSet = GSet(id, state + element)
 
+  // def convert(gid: String, state: JsValue): JsValue = GSet.Format.adds(gid, state)
+
   def merge(that: GSet): GSet = GSet(id, that.state ++ this.state)
 
   def value: immutable.Set[JsValue] = state
@@ -47,6 +49,13 @@ object GSet {
       "type" -> JsString(set.dataType),
       "id" -> JsString(set.id),
       "state" -> Json.toJson(set.state)))
+
+    //    for test only
+    def adds(id: String, e: JsValue): JsValue = JsObject(Seq(
+      "type" -> JsString("g-set"),
+      "id" -> JsString(id),
+      "state" -> Json.toJson(Set(e))))
+
   }
 }
 

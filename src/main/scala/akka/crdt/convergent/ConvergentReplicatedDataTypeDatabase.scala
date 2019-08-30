@@ -20,6 +20,8 @@ import scala.concurrent.duration._
 import scala.concurrent.{ Future, Promise }
 import java.util.UUID
 
+import akka.crdt.MsgCounter
+
 object ConvergentReplicatedDataTypeDatabase
     extends ExtensionId[ConvergentReplicatedDataTypeDatabase]
     with ExtensionIdProvider {
@@ -89,6 +91,11 @@ class ConvergentReplicatedDataTypeDatabase(sys: ExtendedActorSystem) extends Ext
     counter
   }
 
+  def fastupdate(json: JsValue): Unit = {
+    log.debug("Updating json CvRDT", json)
+    replicate(json)
+  }
+
   def update(counter: PNCounter): PNCounter = {
     log.debug("Updating CvRDT [{}]", counter)
     replicate(toJson(counter))
@@ -150,7 +157,10 @@ class ConvergentReplicatedDataTypeDatabase(sys: ExtendedActorSystem) extends Ext
     log.info("ConvergentReplicatedDataTypeDatabase shut down successfully")
   }
 
-  private def replicate(json: JsValue): Unit = replicator ! Replicator.Replicate(json)
+  private def replicate(json: JsValue): Unit = {
+    MsgCounter.MsgCounter += 1
+    replicator ! Replicator.Replicate(json)
+  }
 
   /**
    * Used to select the buddy node for buddy replication.
@@ -211,6 +221,7 @@ class Replicator(settings: ConvergentReplicatedDataTypeSettings)
       val changeSet = ChangeSet(batch)
       replicas foreach { replica ⇒
         log.debug("Replicating updated CvRDT batch [{}] to [{}]", batch.mkString(", "), replica)
+        MsgCounter.MsgCounter += 1
         resubmittor ! VerifyAckFor(replica, changeSet)
         context.actorSelection(replica + journalPath) tell (changeSet, resubmittor)
       }
@@ -230,14 +241,17 @@ class Replicator(settings: ConvergentReplicatedDataTypeSettings)
 
     case state: CurrentClusterState ⇒
       replicas = (replicas ++ state.members.map(_.address))
+      MsgCounter.MsgCounter += 1
       resubmittor ! ReplicaSetChange(replicas)
 
     case MemberUp(member) ⇒
       replicas = (replicas + member.address)
+      MsgCounter.MsgCounter += 1
       resubmittor ! ReplicaSetChange(replicas)
 
     case MemberRemoved(member, _) ⇒
       replicas = (replicas - member.address)
+      MsgCounter.MsgCounter += 1
       resubmittor ! ReplicaSetChange(replicas)
 
     case _: ClusterDomainEvent ⇒ // ignore
@@ -279,7 +293,12 @@ class Resubmittor(settings: ConvergentReplicatedDataTypeSettings) extends Actor 
       changeSets foreach {
         case (replica, changeSets) ⇒
           log.debug("Resubmitting change sets to replica [{}]", replica)
-          changeSets foreach { changeSet ⇒ context.actorSelection(replica + journalPath) ! changeSet }
+          changeSets foreach { changeSet ⇒
+            {
+              MsgCounter.MsgCounter += 1
+              context.actorSelection(replica + journalPath) ! changeSet
+            }
+          }
       }
   }
 
@@ -320,6 +339,7 @@ class Journal(database: ConvergentReplicatedDataTypeDatabase) extends Actor with
   def receive: Receive = {
     case ChangeSet(batch) ⇒
       log.debug("Received change set from [{}]", sender.path.address)
+      MsgCounter.MsgCounter += 1
       sender ! Ack(selfAddress)
 
       var crdts = immutable.Seq.empty[ConvergentReplicatedDataType]
@@ -346,8 +366,10 @@ class Journal(database: ConvergentReplicatedDataTypeDatabase) extends Actor with
 
               case "g-set" ⇒
                 val set = json.as[GSet]
+                log.warning("set.id: {}", set.id)
                 val newSet = storage.findById[GSet](set.id) map { _ merge set } getOrElse { set }
                 crdts = crdts :+ newSet
+                log.warning("new crdt: {}", crdts)
                 context.system.eventStream.publish(newSet)
                 log.debug("Updated g-set [{}]", newSet)
 
@@ -372,6 +394,7 @@ class Journal(database: ConvergentReplicatedDataTypeDatabase) extends Actor with
         else if (classOf[GSet].isAssignableFrom(clazz)) storage.findById[GSet](id)
         else if (classOf[TwoPhaseSet].isAssignableFrom(clazz)) storage.findById[TwoPhaseSet](id)
         else throw new ClassCastException(s"Could create new CvRDT with id [$id] and type [$clazz]")
+      MsgCounter.MsgCounter += 1
       sender ! crdt
   }
 }

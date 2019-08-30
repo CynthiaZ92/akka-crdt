@@ -18,7 +18,7 @@ import scala.concurrent.Await
 
 import akka.crdt.MsgCounter
 
-object GSetClusterSpecConfig extends MultiNodeConfig {
+object FastGSetClusterSpecConfig extends MultiNodeConfig {
   val node1 = role("node1")
   val node2 = role("node2")
   val node3 = role("node3")
@@ -34,13 +34,13 @@ object GSetClusterSpecConfig extends MultiNodeConfig {
   """))
 }
 
-class GSetClusterSpecMultiJvmNode1 extends GSetClusterSpec
-class GSetClusterSpecMultiJvmNode2 extends GSetClusterSpec
-class GSetClusterSpecMultiJvmNode3 extends GSetClusterSpec
+class FastGSetClusterSpecMultiJvmNode1 extends FastGSetClusterSpec
+class FastGSetClusterSpecMultiJvmNode2 extends FastGSetClusterSpec
+class FastGSetClusterSpecMultiJvmNode3 extends FastGSetClusterSpec
 
-class GSetClusterSpec extends MultiNodeSpec(GSetClusterSpecConfig) with STMultiNodeSpec {
+class FastGSetClusterSpec extends MultiNodeSpec(FastGSetClusterSpecConfig) with STMultiNodeSpec {
 
-  import GSetClusterSpecConfig._
+  import FastGSetClusterSpecConfig._
 
   implicit def roleNameToAddress(role: RoleName): Address = testConductor.getAddressFor(role).await
   implicit val sys: ActorSystem = system
@@ -82,14 +82,17 @@ class GSetClusterSpec extends MultiNodeSpec(GSetClusterSpecConfig) with STMultiN
 
       // let each node update the set
       runOn(node1) {
-        db.findById[GSet]("users") map (_ + parse(coltrane)) foreach (db.update(_))
+        // db.findById[GSet]("users") map (_ + parse(coltrane)) foreach (db.update(_))
+        db.fastupdate(GSet.Format.adds("users",parse(coltrane)))
       }
       runOn(node2) {
-        db.findById[GSet]("users") map (_ + parse(rollins)) foreach (db.update(_))
+        // db.findById[GSet]("users") map (_ + parse(rollins)) foreach (db.update(_))
+        db.fastupdate(GSet.Format.adds("users",parse(rollins)))
       }
       runOn(node3) {
-        db.findById[GSet]("users") map (_ + parse(parker)) foreach (db.update(_))
-        db.findById[GSet]("users") map (_ + parse(rollins)) foreach (db.update(_)) // try to add the same element concurrently
+        // db.findById[GSet]("users") map (_ + parse(parker)) foreach (db.update(_))
+        db.fastupdate(GSet.Format.adds("users",parse(parker)))
+        // db.findById[GSet]("users") map (_ + parse(rollins)) foreach (db.update(_)) // try to add the same element concurrently
       }
       enterBarrier("updated-set-on-all-nodes")
 
